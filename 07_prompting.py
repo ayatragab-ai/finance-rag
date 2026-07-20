@@ -68,6 +68,30 @@ def ask_openrouter(prompt):
     return response.choices[0].message.content
 
 
+def _looks_like_no_answer(text):
+    """Detect when the grounded model reply admits the context lacks the answer."""
+    if not text:
+        return True
+    low = text.lower()
+    signals = [
+        "does not include",
+        "does not contain",
+        "not include information",
+        "no information",
+        "not enough information",
+        "insufficient",
+        "cannot answer",
+        "can't answer",
+        "unable to answer",
+        "not found in the context",
+        "not mentioned",
+        "not provided",
+        "not specified",
+        "not available in the context",
+    ]
+    return any(s in low for s in signals)
+
+
 def answer_question(index, question):
     """Return (answer, sources, grounded).
 
@@ -75,14 +99,19 @@ def answer_question(index, question):
     grounded == False -> answer came from the model's general knowledge.
     """
     context, sources = build_context(index, question)
-    grounded = bool(context)
 
     if not OPENROUTER_API_KEY:
-        return "Missing OPENROUTER_API_KEY. Add it to your .env or Streamlit secrets.", sources, grounded
+        return "Missing OPENROUTER_API_KEY. Add it to your .env or Streamlit secrets.", sources, bool(context)
 
-    if grounded:
-        prompt = build_grounded_prompt(question, context)
-    else:
-        prompt = build_general_prompt(question)
+    # 1) If we retrieved relevant context, try a grounded answer first.
+    if context:
+        grounded_answer = ask_openrouter(build_grounded_prompt(question, context))
 
-    return ask_openrouter(prompt), sources, grounded
+        # If the model says the context doesn't actually contain the answer,
+        # fall back to general knowledge instead of dead-ending.
+        if not _looks_like_no_answer(grounded_answer):
+            return grounded_answer, sources, True
+
+    # 2) Fallback: answer from the model's general knowledge (not grounded).
+    general_answer = ask_openrouter(build_general_prompt(question))
+    return general_answer, [], False
