@@ -1,0 +1,3 @@
+# Extra deps only needed if you run 05_create_chroma_store.py locally.
+chromadb
+pysqlite3-binary
